@@ -13,6 +13,8 @@ Module Module1
     Public Overwrite As Boolean = False
     'Other Variables
     Public ArchivePath As String = Nothing
+    Public ProgramFilesDirs(1) As String
+    Public ArchiveBackupApp As String = "C:\Program Files\Proficy\Proficy Historian\x86\Server\ihArchiveBackup.exe"
 
     Sub Main(args As String())
         ParameterFlags = {
@@ -22,11 +24,17 @@ Module Module1
             {"-F", "The file path to the file containing the list of the archive paths to import for restoring (only IHAs at the moment), one item per line"},
             {"-O", "Overwrite any existing IHA files in the default archive path"},
             {"-D", "The specified datastore (leave blank to use the default datastore)"},
+            {"-NC", "Skip the backing up of configuration file (IHC) before restoration"},
             {"-H", ""},
             {"-HELP", ""},
             {"--HELP", ""}
         }
         'Extract Arguments for application
+        If args.Count() = 0 Then
+            OutputHelp()
+            Threading.Thread.Sleep(2000)
+            GoTo errc
+        End If
         For i As Integer = 0 To args.Count() - 1
             Select Case UCase(args(i))
                 Case ParameterFlags(0, 0) '-s
@@ -61,7 +69,9 @@ Module Module1
                             Datastore = args(i + 1)
                         End If
                     End If
-                Case ParameterFlags(6, 0), ParameterFlags(7, 0), ParameterFlags(8, 0) '-help
+                Case ParameterFlags(6, 0) '-nc
+                    ArchiveBackupApp = ""
+                Case ParameterFlags(7, 0), ParameterFlags(8, 0), ParameterFlags(9, 0) '-help
                     OutputHelp()
                     GoTo errc
                 Case Else
@@ -71,7 +81,8 @@ Module Module1
 
         'check for the Historian SDK DLL Depedencies
         If Not System.IO.File.Exists("%SYSTEMROOT%\SYSWOW64\iHSDK.dll") Then
-            Console.WriteLine("The Historian SDK has not been installed, please run this from the Historian Install Disk under Client Tools")
+            Console.WriteLine("The Historian SDK has not been installed, please install this from the Historian Installation Disk under Client Tools")
+            Console.WriteLine("The ISO image can be downloaded from the GE Website, https://digitalsupport.ge.com/en_US/Download/Historian-7-1")
             GoTo errc
         End If
 
@@ -79,6 +90,30 @@ Module Module1
         If String.IsNullOrEmpty(FilePath) Then
             Console.WriteLine("No file provided, please provide a file list, and use the -f flag")
             GoTo errc
+        End If
+
+        If Not String.IsNullOrEmpty(ArchiveBackupApp) And Not System.IO.File.Exists(ArchiveBackupApp) Then
+            ArchiveBackupApp = ""
+            ProgramFilesDirs = {
+                Environment.ExpandEnvironmentVariables("%ProgramW6432%"),
+                Environment.ExpandEnvironmentVariables("%ProgramFiles(x86)%")
+            }
+            Dim dirInfo
+            Dim matches As New List(Of IO.FileInfo)
+            For Each ProgramFileDir As String In ProgramFilesDirs
+                dirInfo = New IO.DirectoryInfo(ProgramFileDir)
+                SearchForFileInDirectory(matches, dirInfo, "ihArchiveBackup.exe")
+                If matches.Count > 0 Then
+                    Console.WriteLine("found")
+                    ArchiveBackupApp = matches(0).FullName
+                    Exit For
+                End If
+            Next
+            If String.IsNullOrEmpty(ArchiveBackupApp) Then
+                Console.WriteLine("Warning! No backup program detected for backing up the server configuration.")
+                Console.WriteLine("Press any key to continue with the restoration")
+                Console.ReadKey()
+            End If
         End If
 
         'Establish connection to server
@@ -132,14 +167,16 @@ Module Module1
         End If
 
         'Perform a backup of the IHC file
-        Console.WriteLine("Backing up IHC file before commencing restoration")
-        Dim p As New Process
-        Dim psi As New ProcessStartInfo("C:\Program Files\Proficy\Proficy Historian\x86\Server\ihArchiveBackup.exe", " -s " + ServerName + " -t 30 -c")
-        psi.CreateNoWindow = False
-        psi.UseShellExecute = False
-        p.StartInfo = psi
-        p.Start()
-        p.WaitForExit()
+        If Not String.IsNullOrEmpty(ArchiveBackupApp) Then
+            Console.WriteLine("Backing up IHC file before commencing restoration")
+            Dim p As New Process
+            Dim psi As New ProcessStartInfo("C:\Program Files\Proficy\Proficy Historian\x86\Server\ihArchiveBackup.exe", " -s " + ServerName + " -t 30 -c")
+            psi.CreateNoWindow = False
+            psi.UseShellExecute = False
+            p.StartInfo = psi
+            p.Start()
+            p.WaitForExit()
+        End If
 
         'Loop through each line of the file
         Dim myarchives As iHistorian_SDK.Archives
@@ -276,4 +313,25 @@ IsInArrayError:
             Console.WriteLine(vbTab + LCase(ParameterFlags(i, 0)) + vbTab + ParameterFlags(i, 1))
         Next i
     End Sub
+
+    Private Sub SearchForFileInDirectory(ByVal matches As List(Of IO.FileInfo), ByVal directory As IO.DirectoryInfo, ByVal fileName As String)
+        Try
+            For Each subDirectory As IO.DirectoryInfo In directory.GetDirectories()
+                SearchForFileInDirectory(matches, subDirectory, fileName)
+            Next
+        Catch
+            'MsgBox("Error iterating : " & directory.FullName)
+        End Try
+        Try
+            For Each file As IO.FileInfo In directory.GetFiles()
+                If file.Name.ToLower = fileName.ToLower() Then
+                    matches.Add(file)
+                End If
+            Next
+        Catch
+            'MsgBox("Error iterating : " & directory.FullName)
+        End Try
+    End Sub
+
+
 End Module
