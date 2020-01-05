@@ -5,7 +5,7 @@
 This is CLI for GE Historian to bulk restore archives. This application requires the Historian SDK installed.
 
 ```bash
-HistorianArchiveCLI [-s] [-u] [-p] -f [-o] [-d]
+HistorianArchiveCLI [-s] [-u] [-p] -f [-o] [-d] [-nc]
 
         -s      The hostname of the server for connecting to
         -u      The username for authenticating with historian (leave blank to use AD group)
@@ -13,6 +13,7 @@ HistorianArchiveCLI [-s] [-u] [-p] -f [-o] [-d]
         -f      The file path to the file containing the list of the archive paths to import for restoring (only IHAs at the moment), one item per line
         -o      Overwrite any existing IHA files in the default archive path
         -d      The specified datastore (leave blank to use the default datastore)
+        -nc     Skip the backing up of configuration file (IHC) before restoration
 ```
 
 ##File List

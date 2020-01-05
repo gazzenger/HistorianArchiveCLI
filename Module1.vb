@@ -80,7 +80,7 @@ Module Module1
         Next
 
         'check for the Historian SDK DLL Depedencies
-        If Not System.IO.File.Exists("%SYSTEMROOT%\SYSWOW64\iHSDK.dll") Then
+        If Not System.IO.File.Exists("C:\Windows\SYSWOW64\iHSDK.dll") Then
             Console.WriteLine("The Historian SDK has not been installed, please install this from the Historian Installation Disk under Client Tools")
             Console.WriteLine("The ISO image can be downloaded from the GE Website, https://digitalsupport.ge.com/en_US/Download/Historian-7-1")
             GoTo errc
