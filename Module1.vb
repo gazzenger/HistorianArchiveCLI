@@ -11,7 +11,7 @@ Module Module1
     Public Password As String = Nothing
     Public Datastore As String = Nothing
     Public Overwrite As Boolean = False
-    Public UnixTimeStamp As Double = (DateTime.UtcNow - New DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds
+    Public TimeStamp As String = DateTime.Now.ToString("yyyyMMddhhmmss")
     'Other Variables
     Public ArchivePath As String = Nothing
     Public BackupPath As String = Nothing
@@ -89,7 +89,6 @@ Module Module1
                             FilePath = args(i + 1)
                         End If
                     End If
-
                 Case ParameterFlags(7, 0) '-olderthan
                     If (i < args.Count() - 1) Then
                         If (IsInArray(CStr(args(i + 1)), ParameterFlags, True, False) = -1) Then
@@ -100,14 +99,12 @@ Module Module1
                             End If
                         End If
                     End If
-
                 Case ParameterFlags(8, 0) '-exportpath
                     If (i < args.Count() - 1) Then
                         If (IsInArray(CStr(args(i + 1)), ParameterFlags, True, False) = -1) Then
                             ExportPath = args(i + 1)
                         End If
                     End If
-
                 Case ParameterFlags(9, 0) '-o
                     Overwrite = True
                 Case ParameterFlags(10, 0) '-d
@@ -177,22 +174,15 @@ Module Module1
                     GoTo errc
                 Else
                     'create sub directory for export
-                    ExportPath = ExportPath + "\Backup-" + UnixTimeStamp.ToString() + "\"
+                    ExportPath = ExportPath + "\Backup-" + TimeStamp + "\"
                     Directory.CreateDirectory(ExportPath)
                 End If
             End If
 
         End If
 
-
-
-
-
         'Replace default location of ArchiveBackupApp
         ArchiveBackupApp = ConvertToUNC(ArchiveBackupApp)
-
-
-
         If Not String.IsNullOrEmpty(ArchiveBackupApp) And Not System.IO.File.Exists(ArchiveBackupApp) Then
             ArchiveBackupApp = ""
             'Environment.ExpandEnvironmentVariables("%ProgramW6432%"),
@@ -290,10 +280,14 @@ Module Module1
             p.StartInfo = psi
             p.Start()
             p.WaitForExit()
+            'rename the config backup with date/time stamp
+            System.IO.File.Move(ConvertToUNC(BackupPath) + ServerName + "_Config.ihc", ConvertToUNC(BackupPath) + ServerName + "_Config" + TimeStamp + ".ihc")
             'move the config file over to the export path
             If Not String.IsNullOrEmpty(ExportPath) Then
-                If ExportFile(ConvertToUNC(BackupPath) + ServerName + "_Config.ihc", ConvertToUNC(ExportPath), True) Then
-                    System.IO.File.Move(ConvertToUNC(ExportPath) + ServerName + "_Config.ihc", ConvertToUNC(ExportPath) + ServerName + "_Config" + UnixTimeStamp.ToString() + ".ihc")
+                If ExportFile(ConvertToUNC(BackupPath) + ServerName + "_Config" + TimeStamp + ".ihc", ConvertToUNC(ExportPath), True) Then
+                    Console.WriteLine("Successfully exported the IHC file " + ServerName + "_Config" + TimeStamp + ".ihc" + " to the export path " + ConvertToUNC(ExportPath))
+                Else
+                    Console.WriteLine("Failed to export the IHC file " + ServerName + "_Config" + TimeStamp + ".ihc" + " to the export path " + ConvertToUNC(ExportPath))
                 End If
             End If
         End If
@@ -318,27 +312,17 @@ Module Module1
         End If
 
         If (OlderThan IsNot Nothing) Then
-
-
             'cycle through each line in the input file
             For Each Line As String In OldThanArchives
-
-
-
                 If Not String.IsNullOrEmpty(Line) Then
-
                     If Not System.IO.File.Exists(ConvertToUNC(Line)) Then
                         Console.WriteLine("The archive " + ConvertToUNC(Line) + " doesn't exist")
                     Else
-
                         If BackupAction Then BackupArchive(Line)
                         If RemoveAction Then RemoveArchive(Line)
                     End If
                 End If
-
             Next
-
-
         ElseIf Not (String.IsNullOrEmpty(FilePath)) Then
             'cycle through each line in the input file
             For Each Line As String In File.ReadLines(FilePath)
@@ -354,10 +338,6 @@ Module Module1
                 End If
             Next
         End If
-
-
-
-
 
 errc:
         If Err.Number Then Console.WriteLine(Err.Number)
@@ -480,6 +460,20 @@ IsInArrayError:
 
     'Restore Archive Function
     Sub RestoreArchive(fileName As String)
+        If (Path.GetExtension(ConvertToUNC(fileName)).ToUpper() = ".ZIP") Then
+            Console.WriteLine("The file " + ConvertToUNC(fileName) + " is a ZIP, uncompressing to Archive folder.")
+            ZipFile.ExtractToDirectory(ConvertToUNC(fileName), ConvertToUNC(ArchivePath))
+            'check the uncompressed file exists
+            If System.IO.File.Exists(ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha") Then
+                Console.WriteLine("The file has been uncompressed to " + ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha" + " successfully")
+                fileName = ArchivePath + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha"
+            Else
+                Console.WriteLine("The file could not be uncompressed to " + ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha")
+                myarchive = Nothing
+                Exit Sub
+            End If
+        End If
+
         'check if the archive path is inside the archive path (or if it needs to be copied)
         If ConvertToUNC(fileName).Contains(ConvertToUNC(ArchivePath)) Then
             If Not IsFileInUse(ConvertToUNC(ArchivePath) + Path.GetFileName(ConvertToUNC(fileName))) Then
@@ -575,15 +569,9 @@ IsInArrayError:
                         'check if exporting is required (moving files to another location)
                         If Not String.IsNullOrEmpty(ExportPath) Then
                             'move the backed up archive
-                            'check if the archive is zipped, if so send this
-                            If System.IO.File.Exists(ConvertToUNC(BackupPath) + "\Offline\" + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".zip") Then
-                                If ExportFile(ConvertToUNC(BackupPath) + "\Offline\" + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".zip", ConvertToUNC(ExportPath), True) Then
-                                    'delete the iha file
-                                    System.IO.File.Delete(ConvertToUNC(fileName))
-                                End If
-                            Else
-                                'otherwise, fallback to the iha file
-                                ExportFile(ConvertToUNC(fileName), ConvertToUNC(ExportPath), True)
+                            If ExportFile(ConvertToUNC(BackupPath) + "\Offline\" + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".zip", ConvertToUNC(ExportPath), True) Then
+                                'delete the iha file
+                                System.IO.File.Delete(ConvertToUNC(fileName))
                             End If
                         End If
                     Else
@@ -618,40 +606,19 @@ IsInArrayError:
             Console.WriteLine("Cannot export file " + Source + " as the file does not exist.")
             Return False
         End If
-        'Check extension for zip
-        If (Path.GetExtension(Source).ToUpper() = ".ZIP") Or (Path.GetExtension(Source).ToUpper() = ".IHC") Then
-            System.IO.File.Copy(Source, Destination + "\" + Path.GetFileName(ConvertToUNC(Source)))
-            'verify new file
-            If (Not System.IO.File.Exists(Destination + "\" + Path.GetFileName(ConvertToUNC(Source)))) Then
-                Console.WriteLine("Export failed to copy the file " + Source + " to the destination " + Destination)
-                Return False
-            Else
-                Console.WriteLine("Successfully exported the file " + Source + " to the destination " + Destination + "\" + Path.GetFileName(ConvertToUNC(Source)))
-                If DeleteSourceOnSuccess Then
-                    System.IO.File.Delete(Source)
-                    Console.WriteLine("Successfully deleted the file " + Source)
-                End If
-                Return True
-            End If
+        System.IO.File.Copy(Source, Destination + "\" + Path.GetFileName(ConvertToUNC(Source)))
+        'verify new file
+        If (Not System.IO.File.Exists(Destination + "\" + Path.GetFileName(ConvertToUNC(Source)))) Then
+            Console.WriteLine("Export failed to copy the file " + Source + " to the destination " + Destination)
+            Return False
         Else
-            ZipFile.CreateFromDirectory(Source, Destination + "\" + Path.GetFileNameWithoutExtension(Source) + ".zip")
-
-            If (Not System.IO.File.Exists(Destination + "\" + Path.GetFileNameWithoutExtension(Source) + ".zip")) Then
-                Console.WriteLine("Export failed to zip the file " + Source + " to the destination " + Destination)
-                Return False
-            Else
-                Console.WriteLine("Successfully exported the file " + Source + " as a zip to the destination " + Destination + "\" + Path.GetFileNameWithoutExtension(Source) + ".zip")
-                If DeleteSourceOnSuccess Then
-                    System.IO.File.Delete(Source)
-                    Console.WriteLine("Successfully deleted the file " + Source)
-                End If
-                Return True
+            Console.WriteLine("Successfully exported the file " + Source + " to the destination " + Destination + "\" + Path.GetFileName(ConvertToUNC(Source)))
+            If DeleteSourceOnSuccess Then
+                System.IO.File.Delete(Source)
+                Console.WriteLine("Successfully deleted the file " + Source)
             End If
-
+            Return True
         End If
-
-
-
     End Function
 
 End Module
