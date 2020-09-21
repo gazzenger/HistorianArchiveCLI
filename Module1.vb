@@ -207,7 +207,7 @@ Module Module1
                 Console.ReadKey()
             End If
         End If
-
+        Console.WriteLine("Started at " + DateTime.Now.ToString("yyyyMMddhhmmss"))
         'Establish connection to server
         On Error GoTo errc
         Dim lStartTime&, lEndTime&
@@ -272,7 +272,9 @@ Module Module1
 
         'Perform a backup of the IHC file
         If Not String.IsNullOrEmpty(ArchiveBackupApp) Then
-            Console.WriteLine("Backing up IHC file before commencing restoration")
+            Console.WriteLine("Backing up IHC file before commencing")
+            Dim tmpConf As String = Nothing
+            Dim skipConf As Boolean = False
             Dim p As New Process
             Dim psi As New ProcessStartInfo(ArchiveBackupApp, " -s " + ServerName + " -t 30 -c")
             psi.CreateNoWindow = False
@@ -281,13 +283,35 @@ Module Module1
             p.Start()
             p.WaitForExit()
             'rename the config backup with date/time stamp
-            System.IO.File.Move(ConvertToUNC(BackupPath) + ServerName + "_Config.ihc", ConvertToUNC(BackupPath) + ServerName + "_Config" + TimeStamp + ".ihc")
-            'move the config file over to the export path
-            If Not String.IsNullOrEmpty(ExportPath) Then
-                If ExportFile(ConvertToUNC(BackupPath) + ServerName + "_Config" + TimeStamp + ".ihc", ConvertToUNC(ExportPath), True) Then
-                    Console.WriteLine("Successfully exported the IHC file " + ServerName + "_Config" + TimeStamp + ".ihc" + " to the export path " + ConvertToUNC(ExportPath))
+            'check for backed up file location
+            If (ConvertToUNC(BackupPath) = ConvertToUNC(ArchivePath)) Then
+                If System.IO.File.Exists(ConvertToUNC(BackupPath) + ServerName + "_Config-Backup.ihc") Then
+                    If Not IsFileInUse(ConvertToUNC(BackupPath) + ServerName + "_Config-Backup.ihc") Then
+                        tmpConf = ConvertToUNC(BackupPath) + ServerName + "_Config-Backup.ihc"
+                    Else
+                        Console.WriteLine("IHC file " + ConvertToUNC(BackupPath) + ServerName + "_Config-Backup.ihc is still in use")
+                    End If
+                End If
+            End If
+            'if the archive and backup folders are different, then assume the config is named correctly
+            If String.IsNullOrEmpty(tmpConf) Then
+                If Not IsFileInUse(ConvertToUNC(BackupPath) + ServerName + "_Config.ihc") Then
+                    tmpConf = ConvertToUNC(BackupPath) + ServerName + "_Config.ihc"
                 Else
-                    Console.WriteLine("Failed to export the IHC file " + ServerName + "_Config" + TimeStamp + ".ihc" + " to the export path " + ConvertToUNC(ExportPath))
+                    Console.WriteLine("IHC file " + ConvertToUNC(BackupPath) + ServerName + "_Config.ihc is still in use")
+                    skipConf = True
+                End If
+            End If
+
+            If Not skipConf Then
+                System.IO.File.Move(tmpConf, ConvertToUNC(BackupPath) + ServerName + "_Config" + TimeStamp + ".ihc")
+                'move the config file over to the export path
+                If Not String.IsNullOrEmpty(ExportPath) Then
+                    If ExportFile(ConvertToUNC(BackupPath) + ServerName + "_Config" + TimeStamp + ".ihc", ConvertToUNC(ExportPath), True) Then
+                        Console.WriteLine("Successfully exported the IHC file " + ServerName + "_Config" + TimeStamp + ".ihc" + " to the export path " + ConvertToUNC(ExportPath))
+                    Else
+                        Console.WriteLine("Failed to export the IHC file " + ServerName + "_Config" + TimeStamp + ".ihc" + " to the export path " + ConvertToUNC(ExportPath))
+                    End If
                 End If
             End If
         End If
@@ -313,16 +337,26 @@ Module Module1
 
         If (OlderThan IsNot Nothing) Then
             'cycle through each line in the input file
-            For Each Line As String In OldThanArchives
-                If Not String.IsNullOrEmpty(Line) Then
-                    If Not System.IO.File.Exists(ConvertToUNC(Line)) Then
-                        Console.WriteLine("The archive " + ConvertToUNC(Line) + " doesn't exist")
+            For i = (myarchives.Count - 1) To 0 Step -1
+                If Not String.IsNullOrEmpty(OldThanArchives(i)) Then
+                    If Not System.IO.File.Exists(ConvertToUNC(OldThanArchives(i))) Then
+                        Console.WriteLine("The archive " + ConvertToUNC(OldThanArchives(i)) + " doesn't exist")
                     Else
-                        If BackupAction Then BackupArchive(Line)
-                        If RemoveAction Then RemoveArchive(Line)
+                        If BackupAction Then BackupArchive(OldThanArchives(i))
+                        If RemoveAction Then RemoveArchive(OldThanArchives(i))
                     End If
                 End If
             Next
+            'For Each Line As String In OldThanArchives
+            '    If Not String.IsNullOrEmpty(Line) Then
+            '        If Not System.IO.File.Exists(ConvertToUNC(Line)) Then
+            '            Console.WriteLine("The archive " + ConvertToUNC(Line) + " doesn't exist")
+            '        Else
+            '            If BackupAction Then BackupArchive(Line)
+            '            If RemoveAction Then RemoveArchive(Line)
+            '        End If
+            '    End If
+            'Next
         ElseIf Not (String.IsNullOrEmpty(FilePath)) Then
             'cycle through each line in the input file
             For Each Line As String In File.ReadLines(FilePath)
@@ -347,7 +381,7 @@ errc:
         End If
         myarchives = Nothing
         mydatastores = Nothing
-        Console.WriteLine("End.")
+        Console.WriteLine("Ended at " + DateTime.Now.ToString("yyyyMMddhhmmss"))
 
     End Sub
 
@@ -461,8 +495,25 @@ IsInArrayError:
     'Restore Archive Function
     Sub RestoreArchive(fileName As String)
         If (Path.GetExtension(ConvertToUNC(fileName)).ToUpper() = ".ZIP") Then
+
+            'check if the archive directory already contains a file with the same name
+            If System.IO.File.Exists(ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha") Then
+                If Not Overwrite Then
+                    Console.WriteLine("A file already exists in the directory " + ConvertToUNC(ArchivePath) + " with the name " + ConvertToUNC(fileName) + " please remove this file")
+                    myarchive = Nothing
+                    Exit Sub
+                ElseIf IsFileInUse(ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha") Then
+                    Console.WriteLine("A file already exists in the directory " + ConvertToUNC(ArchivePath) + " with the name " + ConvertToUNC(fileName) + ", and is currently is use, please remove this file")
+                    myarchive = Nothing
+                    Exit Sub
+                Else
+                    Console.WriteLine("The file " + ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha" + " is being deleted")
+                    System.IO.File.Delete(ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha")
+                End If
+            End If
             Console.WriteLine("The file " + ConvertToUNC(fileName) + " is a ZIP, uncompressing to Archive folder.")
             ZipFile.ExtractToDirectory(ConvertToUNC(fileName), ConvertToUNC(ArchivePath))
+
             'check the uncompressed file exists
             If System.IO.File.Exists(ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha") Then
                 Console.WriteLine("The file has been uncompressed to " + ConvertToUNC(ArchivePath) + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)) + ".iha" + " successfully")
@@ -472,6 +523,7 @@ IsInArrayError:
                 myarchive = Nothing
                 Exit Sub
             End If
+
         End If
 
         'check if the archive path is inside the archive path (or if it needs to be copied)
@@ -530,7 +582,7 @@ IsInArrayError:
             'verify the archive filename directly
             myarchive = myarchives.Item(idx)
             'if the filename also matches
-            If (myarchive.FileName.ToUpper() = CStr(fileName).ToUpper()) Then
+            If (ConvertToUNC(myarchive.FileName).ToUpper() = ConvertToUNC(CStr(fileName)).ToUpper()) Then
                 If myarchive.Backup(BackupPath + Path.GetFileNameWithoutExtension(ConvertToUNC(fileName)), Datastore) Then
                     Console.WriteLine("The archive " + ConvertToUNC(fileName) + " has been successfully backed up")
 
@@ -559,7 +611,7 @@ IsInArrayError:
             'verify the archive filename directly
             myarchive = myarchives.Item(idx)
             'if the filename also matches
-            If (myarchive.FileName.ToUpper() = CStr(fileName).ToUpper()) Then
+            If (ConvertToUNC(myarchive.FileName).ToUpper() = ConvertToUNC(CStr(fileName)).ToUpper()) Then
                 'check if the archive is current
                 If (myarchive.IsCurrent) Then
                     Console.WriteLine("The archive " + ConvertToUNC(fileName) + " is set to current, and cannot be removed")
