@@ -1,7 +1,7 @@
 # HistorianArchiveCLI
 *For GE Proficy Historian (currnently works with v7.1 and v8.1 Historian)*
 **v 2.0.0.0**
-**By Gary Namestnik**
+**By Gary**
 
 This is CLI for GE Proficy Historian to bulk restore archives. This application requires the Historian SDK installed.
 
